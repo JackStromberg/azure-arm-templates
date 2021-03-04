@@ -34,7 +34,7 @@ This template will create the following items:
 Instructions on how to generate Base64 encoded SSL Certificates can be found here: https://jackstromberg.com/2021/03/how-to-generate-base64-encoded-ssl-certificates-via-powershell-for-azure/
 
 # Quick Deployment
-[![Deploy To Azure](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/deploytoazure.svg?sanitize=true)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FJackStromberg%2Fazure-arm-templates%2Fmaster%2FAppGW-VNET-Injection-App-Service-AAD-Auth%2Fazuredeploy.json)  [![Visualize](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/visualizebutton.svg?sanitize=true)](http://armviz.io/#/?load=https%3A%2F%2Fraw.githubusercontent.com%2FJackStromberg%2Fazure-arm-templates%2Fmaster%2FAppGW-VNET-Injection-App-Service-AAD-Auth%2Fazuredeploy.json)
+[![Deploy To Azure](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/deploytoazure.svg?sanitize=true)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FJackStromberg%2Fazure-arm-templates%2Fmaster%2FAppGW-VNET-Integration-App-Service-AAD-Auth%2Fazuredeploy.json)  [![Visualize](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/visualizebutton.svg?sanitize=true)](http://armviz.io/#/?load=https%3A%2F%2Fraw.githubusercontent.com%2FJackStromberg%2Fazure-arm-templates%2Fmaster%2FAppGW-VNET-Integration-App-Service-AAD-Auth%2Fazuredeploy.json)
 
 # Diagram of deployment
 ![](topology.png)

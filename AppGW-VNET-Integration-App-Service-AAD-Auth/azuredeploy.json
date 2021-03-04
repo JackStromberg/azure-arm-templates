@@ -1,0 +1,515 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "webAppName": {
+            "defaultValue": "myWebApp",
+            "type": "string"
+        },
+        "virtualNetworkName": {
+            "defaultValue": "myVirtualNetwork",
+            "type": "string"
+        },
+        "webAppSubnetName": {
+            "defaultValue": "WebAppSubnet",
+            "type": "string"
+        },
+        "appGatewaySubnetName": {
+            "defaultValue": "AppGatewaySubnet",
+            "type": "string"
+        },
+        "appGatewayName": {
+            "defaultValue": "myAppGateway",
+            "type": "string"
+        },
+        "keyVaultName": {
+            "type": "string",
+            "defaultValue": "kv",
+            "metadata": {
+                "description": "Name of the KeyVault to provision"
+            }
+        },
+        "Secrets": {
+            "type": "array",
+            "defaultValue": [
+                {
+                    "name": "sslcert",
+                    "value": ""
+                }
+            ],
+            "metadata": {
+                "description": "An array of json objects like this : {'name':name, 'value':value}"
+            }
+        },
+        "identityName": {
+            "type": "string",
+            "defaultValue": "id",
+            "metadata": {
+                "description": "Name of the user assigned identity"
+            }
+        },
+        "aadClientId": {
+            "type": "string",
+            "defaultValue": "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+            "metadata": {
+                "description": "Guide of Client ID of the application in Azure AD"
+            }
+        },
+        "aadTenantId": {
+            "type": "string",
+            "defaultValue": "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+            "metadata": {
+                "description": "Guid of Azure AD Tenant ID"
+            }
+        },
+        "location": {
+            "defaultValue": "[resourceGroup().location]",
+            "type": "string"
+        }
+    },
+    "variables": {
+        "location": "[parameters('location')]",
+        "virtualNetworkName": "[concat(parameters('virtualNetworkName'), '-', uniqueString(resourceGroup().id))]",
+        "virtualNetworkAddressPrefix": "10.0.0.0/20",
+        "virtualNetworkSubnetName": "[parameters('appGatewaySubnetName')]",
+        "virtualNetworkSubnetPrefix": "10.0.0.0/24",
+        "virtualNetworkAsSubnetName": "[parameters('webAppSubnetName')]",
+        "virtualNetworkAsSubnetPrefix": "10.0.1.0/24",
+        "virtualNetworkId": "[resourceId('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+        "virtualNetworkSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/subnets/', variables('virtualNetworkName'), variables('virtualNetworkSubnetName'))]",
+        "virtualNetworkAsSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/subnets/', variables('virtualNetworkName'), variables('virtualNetworkAsSubnetName'))]",
+        "publicIpAddressName": "[concat('myAppGatewayPublicIp', '-', uniqueString(resourceGroup().id))]",
+        "publicIpAddressSku": "Standard",
+        "publicIpAddressAllocationType": "Static",
+        "publicIpAddressId": "[resourceId('Microsoft.Network/publicIPAddresses/', variables('publicIpAddressName'))]",
+        "webAppName": "[concat(parameters('webAppName'), '-', uniqueString(resourceGroup().id))]",
+        "webAppPlanName": "[concat(parameters('webAppName'), 'Plan', '-', uniqueString(resourceGroup().id))]",
+        "webAppPlanSku": "S1",
+        "webAppPlanId": "[resourceId('Microsoft.Web/serverfarms', variables('webAppPlanName'))]",
+        "keyVaultName": "[concat(parameters('keyVaultName'), '-', uniqueString(resourceGroup().id))]",
+        "keyVaultId": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "identityName": "[concat(parameters('identityName'), '-', uniqueString(resourceGroup().id))]",
+        "identityID": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName'))]",
+        "aadClientId": "[parameters('aadClientId')]",
+        "aadTenantIssuer": "[concat('https://login.microsoftonline.com/',parameters('aadTenantId'),'/v2.0')]",
+        "applicationGatewayName": "[concat(parameters('appGatewayName'), '-', uniqueString(resourceGroup().id))]",
+        "applicationGatewaySkuSize": "Standard_v2",
+        "applicationGatewayTier": "Standard_v2",
+        "applicationGatewayAutoScaleMinCapacity": 0,
+        "applicationGatewayAutoScaleMaxCapacity": 5,
+        "appGwIpConfigName": "appGatewayIpConfigName",
+        "appGwHttpFrontendPort": 80,
+        "appGwHttpsFrontendPort": 443,
+        "appGwFrontendIpConfigName": "appGatewayPublicFrontendIpConfig",
+        "appGwHttpSettingProbeName": "HTTPS-Probe",
+        "appGwHttpListenerName": "appGatewayHttpListener",
+        "appGwHttpsListenerName": "appGatewayHttpsListener",
+        "appGwRoutingRuleName": "HTTPS-Rule",
+        "appGwRoutingHttpToSRuleName": "HTTPtoHTTPS-Rule",
+        "appGwRedirectHttpToSConfigName": "HTTPtoHTTPS-Redirect",
+        "appGwBackendAddressPoolName": "[concat('appGateway', variables('webAppName'), 'BackendPool')]",
+        "appGwHttpSettingName": "[concat('appGatewayHttpSetting_', variables('appGwHttpsFrontendPort'))]",
+        "appGwHttpFrontendPortName": "[concat('appGatewayFrontendPort_', variables('appGwHttpFrontendPort'))]",
+        "appGwHttpsFrontendPortName": "[concat('appGatewayFrontendPort_', variables('appGwHttpsFrontendPort'))]",
+        "appGwHttpFrontendPortId": "[resourceId('Microsoft.Network/applicationGateways/frontendPorts/', variables('applicationGatewayName'), variables('appGwHttpFrontendPortName'))]",
+        "appGwHttpsFrontendPortId": "[resourceId('Microsoft.Network/applicationGateways/frontendPorts/', variables('applicationGatewayName'), variables('appGwHttpsFrontendPortName'))]",
+        "appGwFrontendIpConfigId": "[resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations/', variables('applicationGatewayName'), variables('appGwFrontendIpConfigName'))]",
+        "appGwHttpSettingId": "[resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection/', variables('applicationGatewayName'), variables('appGwHttpSettingName'))]",
+        "appGwHttpSettingProbeId": "[resourceId('Microsoft.Network/applicationGateways/probes/', variables('applicationGatewayName'), variables('appGwHttpSettingProbeName'))]",
+        "appGwBackendAddressPoolId": "[resourceId('Microsoft.Network/applicationGateways/backendAddressPools/', variables('applicationGatewayName'), variables('appGwBackendAddressPoolName'))]",
+        "appGwHttpListenerId": "[resourceId('Microsoft.Network/applicationGateways/httpListeners/', variables('applicationGatewayName'), variables('appGwHttpListenerName'))]",
+        "appGwHttpsListenerId": "[resourceId('Microsoft.Network/applicationGateways/httpListeners/', variables('applicationGatewayName'), variables('appGwHttpsListenerName'))]",
+        "requestRoutingRuleHttpToSId": "[resourceId('Microsoft.Network/applicationGateways/requestRoutingRules/', variables('applicationGatewayName'), variables('appGwRedirectHttpToSConfigName'))]",
+        "redirectConfigurationIdHttpToSId": "[resourceId('Microsoft.Network/applicationGateways/redirectConfigurations/', variables('applicationGatewayName'), variables('appGwRedirectHttpToSConfigName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+            "name": "[variables('identityName')]",
+            "apiVersion": "2018-11-30",
+            "location": "[parameters('location')]"
+        },
+        {
+            "type": "Microsoft.KeyVault/vaults",
+            "apiVersion": "2019-09-01",
+            "name": "[variables('keyVaultName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('identityName'))]"
+            ],
+            "properties": {
+                "sku": {
+                    "name": "standard",
+                    "family": "A"
+                },
+                "tenantId": "[reference(variables('identityID')).tenantId]",
+                "accessPolicies": [
+                    {
+                        "tenantId": "[reference(variables('identityID')).tenantId]",
+                        "objectId": "[reference(variables('identityID')).principalId]",
+                        "permissions": {
+                            "secrets": [
+                                "get"
+                            ]
+                        }
+                    }
+                ],
+                "enableSoftDelete": true
+            }
+        },
+        {
+            "type": "Microsoft.KeyVault/vaults/secrets",
+            "apiVersion": "2019-09-01",
+            "name": "[concat(variables('keyVaultName'), '/', parameters('Secrets')[copyIndex()].name)]",
+            "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+            ],
+            "copy": {
+                "name": "secretcopy",
+                "count": "[length(parameters('Secrets'))]"
+            },
+            "properties": {
+                "value": "[parameters('Secrets')[copyIndex()].value]",
+                "recoveryLevel": "Purgeable"
+            }
+        },
+
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2020-05-01",
+            "name": "[variables('virtualNetworkName')]",
+            "location": "[variables('location')]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[variables('virtualNetworkAddressPrefix')]"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('virtualNetworkSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "[variables('virtualNetworkSubnetPrefix')]",
+                            "serviceEndpoints": [
+                                {
+                                    "service": "Microsoft.Web",
+                                    "locations": [
+                                        "*"
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "[variables('virtualNetworkAsSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "[variables('virtualNetworkAsSubnetPrefix')]",
+                            "delegations": [
+                                {
+                                    "name": "delegation",
+                                    "properties": {
+                                        "serviceName": "Microsoft.Web/serverfarms"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "name": "[variables('webAppPlanName')]",
+            "apiVersion": "2020-06-01",
+            "location": "[variables('location')]",
+            "kind": "app",
+            "properties": {
+                "reserved": "false"
+            },
+            "sku": {
+                "name": "[variables('webAppPlanSku')]",
+                "capacity": 1
+            }
+        },
+        {
+            "name": "[variables('webAppName')]",
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2018-02-01",
+            "location": "[variables('location')]",
+            "kind": "app",
+            "dependsOn": [
+                "[variables('webAppPlanId')]",
+                "[variables('virtualNetworkId')]"
+            ],
+            "properties": {
+                "serverFarmId": "[variables('webAppPlanId')]",
+                "reserved": "false",
+                "siteConfig": {
+                    "http20Enabled": "true",
+                    "minTlsVersion": "1.2",
+                    "ipSecurityRestrictions": [
+                        {
+                            "vnetSubnetResourceId": "[variables('virtualNetworkSubnetId')]",
+                            "action": "Allow",
+                            "tag": "Default",
+                            "priority": 200,
+                            "name": "appGatewaySubnet",
+                            "description": "Isolate traffic to subnet containing Azure Application Gateway"
+                        }
+                    ]
+                },
+                "httpsOnly": "false"
+            },
+            "resources": [
+                {
+                    "name": "virtualNetwork",
+                    "type": "config",
+                    "apiVersion": "2019-08-01",
+                    "location": "[variables('location')]",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/sites', variables('webAppName'))]"
+                    ],
+                    "properties": {
+                        "subnetResourceid": "[variables('virtualNetworkAsSubnetId')]",
+                        "swiftSupported": true
+                    }
+                },
+                {
+                    "name": "authsettings",
+                    "type": "config",
+                    "apiVersion": "2019-08-01",
+                    "location": "[variables('location')]",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/sites', variables('webAppName'))]"
+                    ],
+                    "properties": {
+                        "enabled": true,
+                        "defaultProvider": 0,
+                        "clientId": "[variables('aadClientId')]",
+                        "issuer": "[variables('aadTenantIssuer')]",
+                        "isAadAutoProvisioned": false,
+                        "isAuthFromFile": "false"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2020-05-01",
+            "name": "[variables('publicIpAddressName')]",
+            "location": "[variables('location')]",
+            "sku": {
+                "name": "[variables('publicIpAddressSku')]"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "[variables('publicIpAddressAllocationType')]",
+                "dnsSettings": {
+                    "domainNameLabel": "[toLower(variables('webAppName'))]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/applicationGateways",
+            "apiVersion": "2020-05-01",
+            "name": "[variables('applicationGatewayName')]",
+            "location": "[variables('location')]",
+            "dependsOn": [
+                "[variables('publicIpAddressId')]",
+                "[variables('virtualNetworkId')]",
+                "[variables('keyVaultId')]"
+            ],
+            "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                    "[variables('identityID')]": {
+                    }
+                }
+            },
+            "properties": {
+                "sku": {
+                    "name": "[variables('applicationGatewaySkuSize')]",
+                    "tier": "[variables('applicationGatewayTier')]"
+                },
+                "sslCertificates": [
+                    {
+                        "name": "appGatewaySslCert",
+                        "properties": {
+                            "keyVaultSecretId": "[concat(reference(variables('keyVaultName')).vaultUri,'secrets/sslcert')]"
+                        }
+                    }
+                ],
+                "gatewayIPConfigurations": [
+                    {
+                        "name": "[variables('appGwIpConfigName')]",
+                        "properties": {
+                            "subnet": {
+                                "id": "[variables('virtualNetworkSubnetId')]"
+                            }
+                        }
+                    }
+                ],
+                "frontendIPConfigurations": [
+                    {
+                        "name": "[variables('appGwFrontendIpConfigName')]",
+                        "properties": {
+                            "PublicIPAddress": {
+                                "id": "[variables('publicIpAddressId')]"
+                            }
+                        }
+                    }
+                ],
+                "frontendPorts": [
+                    {
+                        "name": "[variables('appGwHttpFrontendPortName')]",
+                        "properties": {
+                            "Port": "[variables('appGwHttpFrontendPort')]"
+                        }
+                    },
+                    {
+                        "name": "[variables('appGwHttpsFrontendPortName')]",
+                        "properties": {
+                            "Port": "[variables('appGwHttpsFrontendPort')]"
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "[variables('appGwBackendAddressPoolName')]",
+                        "properties": {
+                            "backendAddresses": [
+                                {
+                                    "fqdn": "[reference(variables('webAppName')).hostNames[0]]"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "backendHttpSettingsCollection": [
+                    {
+                        "name": "[variables('appGwHttpSettingName')]",
+                        "properties": {
+                            "Port": 443,
+                            "Protocol": "Https",
+                            "cookieBasedAffinity": "Disabled",
+                            "requestTimeout": 20,
+                            "pickHostNameFromBackendAddress": true,
+                            "probe": {
+                                "id": "[variables('appGwHttpSettingProbeId')]"
+                            }
+                        }
+                    }
+                ],
+                "httpListeners": [
+                    {
+                        "name": "[variables('appGwHttpListenerName')]",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[variables('appGwFrontendIpConfigId')]"
+                            },
+                            "frontendPort": {
+                                "id": "[variables('appGwHttpFrontendPortId')]"
+                            },
+                            "protocol": "Http"
+                        }
+                    },
+                    {
+                        "name": "[variables('appGwHttpsListenerName')]",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[variables('appGwFrontendIpConfigId')]"
+                            },
+                            "frontendPort": {
+                                "id": "[variables('appGwHttpsFrontendPortId')]"
+                            },
+                            "protocol": "Https",
+                            "SslCertificate": {
+                                "Id": "[resourceId('Microsoft.Network/applicationGateways/sslCertificates', variables('applicationGatewayName'), 'appGatewaySslCert')]"
+                            }
+                        }
+                    }
+                ],
+                "requestRoutingRules": [
+                    {
+                        "Name": "[variables('appGwRoutingRuleName')]",
+                        "properties": {
+                            "RuleType": "Basic",
+                            "httpListener": {
+                                "id": "[variables('appGwHttpsListenerId')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[variables('appGwBackendAddressPoolId')]"
+                            },
+                            "backendHttpSettings": {
+                                "id": "[variables('appGwHttpSettingId')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "[variables('appGwRoutingHttpToSRuleName')]",
+                        "properties": {
+                            "ruleType": "Basic",
+                            "httpListener": {
+                                "id": "[variables('appGwHttpListenerId')]"
+                            },
+                            "redirectConfiguration": {
+                                "id": "[variables('redirectConfigurationIdHttpToSId')]"
+                            }
+                        }
+                    }
+                ],
+                "redirectConfigurations": [
+                    {
+                        "name": "[variables('appGwRedirectHttpToSConfigName')]",
+                        "properties": {
+                            "redirectType": "Permanent",
+                            "targetListener": {
+                                "id": "[variables('appGwHttpsListenerId')]"
+                            },
+                            "includePath": true,
+                            "includeQueryString": true,
+                            "requestRoutingRules": [
+                                {
+                                    "id": "[variables('requestRoutingRuleHttpToSId')]"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "enableHttp2": true,
+                "probes": [
+                    {
+                        "name": "[variables('appGwHttpSettingProbeName')]",
+                        "properties": {
+                            "interval": 30,
+                            "minServers": 0,
+                            "path": "/",
+                            "protocol": "Https",
+                            "timeout": 30,
+                            "unhealthyThreshold": 3,
+                            "pickHostNameFromBackendHttpSettings": true,
+                            "match": {
+                                "statusCodes": [
+                                    "200-401"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "autoscaleConfiguration": {
+                    "minCapacity": "[variables('applicationGatewayAutoScaleMinCapacity')]",
+                    "maxCapacity": "[variables('applicationGatewayAutoScaleMaxCapacity')]"
+                }
+            }
+        }
+    ],
+    "outputs": {
+        "appGatewayUrl": {
+            "type": "string",
+            "value": "[concat('http://', reference(variables('publicIpAddressName')).dnsSettings.fqdn, '/')]"
+        },
+        "webAppUrl": {
+            "type": "string",
+            "value": "[concat('http://', reference(variables('webAppName')).hostNames[0], '/')]"
+        }
+    }
+}
