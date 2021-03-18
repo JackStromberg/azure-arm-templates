@@ -1,0 +1,430 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vWAN-Name": {
+            "type": "string",
+            "defaultValue": "MooCorp-VWAN",
+            "metadata": {
+                "description": "Name of your VWAN instance."
+            }
+        },
+        "vwanRegion": {
+            "type": "string",
+            "defaultValue": "westus",
+            "metadata": {
+                "description": "Region of the virtual wan resource"
+            }
+        },
+        "vwanHubStartingOctect": {
+            "type": "int",
+            "defaultValue": 249,
+            "metadata": {
+                "description": "VWAN Hub network space second octect value (will increment network by /24s)"
+            },
+            "minValue": 0,
+            "maxValue": 255
+        },
+        "vnetSpokeStartingOctect": {
+            "type": "int",
+            "defaultValue": 250,
+            "metadata": {
+                "description": "Virtual network spoke second octect value (will increment network by /16s)"
+            },
+            "minValue": 0,
+            "maxValue": 255
+        },
+        "adminUsername": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Test machine username."
+            }
+        },
+        "adminPassword": {
+            "type": "securestring",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Test machine password."
+            }
+        },
+        "hubRegions": {
+            "type": "array",
+            "defaultValue": [ "westus", "southeastasia" ],
+            "metadata": {
+                "description": "Region of the virtual wan resource"
+            }
+        },
+        "OnSite-GW-PIPs": {
+            "type": "array",
+            "defaultValue": [ "123.123.123.123", "123.123.123.124" ],
+            "metadata": {
+                "description": "Public IP address of on-premises VPN Gateway connecting to VWAN hub (one per region specified)."
+            }
+        },
+        "OnSite-GW-Vendor": {
+            "type": "string",
+            "defaultValue": "Cisco ISR 2900",
+            "metadata": {
+                "description": "Device vendor for on-premises gateway."
+            }
+        },
+        "OnSite-GW-StartingOctect": {
+            "type": "int",
+            "defaultValue": 10,
+            "metadata": {
+                "description": "Starting octect for on-premises IP ranges for an example VPN Connection."
+            },
+            "minValue": 0,
+            "maxValue": 255
+        }
+    },
+    "variables": {
+        "copy": [
+            {
+                "name": "regionNames",
+                "count": "[length(parameters('hubRegions'))]",
+                "input": "[toUpper(parameters('hubRegions')[copyIndex('regionNames',0)])]"
+            }
+        ],
+        "iterationCount": "[length(variables('regionNames'))]"
+    },
+    "resources": [
+        {
+            "apiVersion": "2020-08-01",
+            "type": "Microsoft.Network/virtualNetworks",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VNET')]",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[concat('10.',add(copyIndex(0),parameters('vnetSpokeStartingOctect')),'.0.0/16')]"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "FrontendMachines",
+                        "properties": {
+                            "addressPrefix": "[concat('10.',add(copyIndex(0),parameters('vnetSpokeStartingOctect')),'.0.0/24')]"
+                        }
+                    },
+                    {
+                        "name": "BackendMachines",
+                        "properties": {
+                            "addressPrefix": "[concat('10.',add(copyIndex(0),parameters('vnetSpokeStartingOctect')),'.1.0/24')]"
+                        }
+                    }
+                ]
+            },
+            "copy": {
+                "name": "VNETCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+
+        {
+            "apiVersion": "2020-08-01",
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VM-NIC')]",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualNetworks/', concat(variables('regionNames')[copyIndex()],'-VNET'))]",
+                "[concat('Microsoft.Network/publicIPAddresses/', concat(variables('regionNames')[copyIndex()],'-VM-NIC-PIP'))]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses',concat(variables('regionNames')[copyIndex()],'-VM-NIC-PIP'))]"
+                            },
+                            "subnet": {
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets',concat(variables('regionNames')[copyIndex()],'-VNET'), 'FrontendMachines')]"
+                            }
+                        }
+                    }
+                ]
+            },
+            "copy": {
+                "name": "VMNICCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "apiVersion": "2020-08-01",
+            "type": "Microsoft.Network/publicIPAddresses",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VM-NIC-PIP')]",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic"
+            },
+            "copy": {
+                "name": "VMPIPCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2020-12-01",
+            "name": "[take(concat(variables('regionNames')[copyIndex()],'-VM'),15)]",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', concat(variables('regionNames')[copyIndex()],'-VM-NIC'))]"
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_DS2_v2"
+                },
+                "osProfile": {
+                    "computerName": "[take(concat(variables('regionNames')[copyIndex()],'-VM'),15)]",
+                    "adminUsername": "[parameters('adminUsername')]",
+                    "adminPassword": "[parameters('adminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "MicrosoftWindowsServer",
+                        "offer": "WindowsServer",
+                        "sku": "2019-Datacenter-smalldisk",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "createOption": "FromImage"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(variables('regionNames')[copyIndex()],'-VM-NIC'))]"
+                        }
+                    ]
+                }
+            },
+            "copy": {
+                "name": "VMCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualWans",
+            "apiVersion": "2020-08-01",
+            "location": "[parameters('vwanRegion')]",
+            "name": "[parameters('vWAN-Name')]",
+            "properties": {
+                "virtualHubs": [
+                ],
+                "vpnSites": [
+                ],
+                "type": "Standard",
+                "allowBranchToBranchTraffic": true,
+                "allowVnetToVnetTraffic": true
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualHubs",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-HUB')]",
+            "apiVersion": "2020-08-01",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualWans/',parameters('vWAN-Name'))]"
+            ],
+            "properties": {
+                "addressPrefix": "[concat('10.',parameters('vwanHubStartingOctect'),'.',copyIndex(0),'.0/24')]",
+                "virtualWan": {
+                    "id": "[resourceId('Microsoft.Network/virtualWans',parameters('vWAN-Name'))]"
+                }
+            },
+            "copy": {
+                "name": "VWANHubCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualHubs/hubVirtualNetworkConnections",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-HUB','/',variables('regionNames')[copyIndex()],'-Hub-To-',variables('regionNames')[copyIndex()],'-VNET')]",
+            "apiVersion": "2020-08-01",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualHubs/',variables('regionNames')[copyIndex()],'-VWAN-HUB')]"
+            ],
+            "properties": {
+                "remoteVirtualNetwork": {
+                    "id": "[resourceId('Microsoft.Network/virtualNetworks',concat(variables('regionNames')[copyIndex()],'-VNET'))]"
+                },
+                "allowHubToRemoteVnetTransit": true,
+                "allowRemoteVnetToUseHubVnetGateways": false,
+                "enableInternetSecurity": true
+            },
+            "copy": {
+                "name": "VWANHubVNetConnectionsCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Network/vpnSites",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-VPN-OnSite1')]",
+            "apiVersion": "2020-08-01",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualWans/', parameters('vWAN-Name'))]"
+            ],
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[concat('10.',parameters('OnSite-GW-StartingOctect'),'.',add(mod(copyIndex(0),2),copyIndex(0)),'.0/24')]",
+                        "[concat('10.',parameters('OnSite-GW-StartingOctect'),'.',add(mod(copyIndex(1),2),copyIndex(0)),'.0/24')]"
+                    ]
+                },
+                "deviceProperties": {
+                    "deviceVendor": "[parameters('OnSite-GW-Vendor')]",
+                    "linkSpeedInMbps": 100
+                },
+                "ipAddress": "[parameters('OnSite-GW-PIPs')[copyIndex()]]",
+                "virtualWan": {
+                    "id": "[resourceId('Microsoft.Network/virtualWans',parameters('vWAN-Name'))]"
+                }
+            },
+            "copy": {
+                "name": "VPNSiteCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Network/azureFirewalls",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL')]",
+            "apiVersion": "2020-08-01",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualHubs/', variables('regionNames')[copyIndex()],'-VWAN-HUB')]",
+                "[resourceId('Microsoft.Network/firewallPolicies', concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL-POLICY'))]"
+            ],
+            "properties": {
+                "virtualHub": {
+                    "id": "[resourceId('Microsoft.Network/virtualHubs',concat(variables('regionNames')[copyIndex()],'-VWAN-HUB'))]"
+                },
+                "sku": {
+                    "name": "AZFW_Hub",
+                    "tier": "Standard"
+                },
+                "hubIPAddresses": {
+                    "publicIPs": {
+                        "count": 1,
+                        "addresses": []
+                    }
+                },
+                "firewallPolicy": {
+                    "id": "[resourceId('Microsoft.Network/firewallPolicies', concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL-POLICY'))]"
+                }
+            },
+            "copy": {
+                "name": "FirewallCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Network/firewallPolicies",
+            "apiVersion": "2020-08-01",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL-POLICY')]",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "properties": {
+                "sku": {
+                    "tier": "Standard"
+                },
+                "threatIntelMode": "Alert",
+                "threatIntelWhitelist": {
+                    "fqdns": [],
+                    "ipAddresses": []
+                }
+            },
+            "copy": {
+                "name": "FirewallPolicyCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Network/firewallPolicies/ruleCollectionGroups",
+            "apiVersion": "2020-08-01",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL-POLICY', '/DefaultDnatRuleCollectionGroup')]",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/firewallPolicies', concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL-POLICY'))]",
+                "[resourceId('Microsoft.Network/azureFirewalls', concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL'))]"
+            ],
+            "properties": {
+                "priority": 100,
+                "ruleCollections": [
+                    {
+                        "ruleCollectionType": "FirewallPolicyNatRuleCollection",
+                        "action": {
+                            "type": "Dnat"
+                        },
+                        "rules": [
+                            {
+                                "ruleType": "NatRule",
+                                "name": "Allow_RDP",
+                                "translatedAddress": "10.250.0.4",
+                                "translatedPort": "3389",
+                                "ipProtocols": [
+                                    "TCP"
+                                ],
+                                "sourceAddresses": [
+                                    "*"
+                                ],
+                                "sourceIpGroups": [],
+                                "destinationAddresses": [
+                                    "[reference(concat(variables('regionNames')[copyIndex()],'-VWAN-HUB-FIREWALL')).hubIPAddresses.publicIPs.addresses[0].address]"
+                                ],
+                                "destinationPorts": [
+                                    "3389"
+                                ]
+                            }
+                        ],
+                        "name": "[concat('AllowRDP',variables('regionNames')[copyIndex()])]",
+                        "priority": 200
+                    }
+                ]
+            },
+            "copy": {
+                "name": "FirewallPolicyRuleCollectionGroupCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        },
+        {
+            "type": "Microsoft.Network/vpnGateways",
+            "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-VPN-GW')]",
+            "apiVersion": "2020-08-01",
+            "location": "[variables('regionNames')[copyIndex()]]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualHubs/', variables('regionNames')[copyIndex()],'-VWAN-Hub')]",
+                "[concat('Microsoft.Network/vpnSites/', variables('regionNames')[copyIndex()],'-VWAN-VPN-OnSite1')]"
+            ],
+            "properties": {
+                "connections": [
+                    {
+                        "name": "[concat(variables('regionNames')[copyIndex()],'-VWAN-VPN-TO-OnSite1')]",
+                        "properties": {
+                            "connectionBandwidth": 100,
+                            "enableBgp": false,
+                            "remoteVpnSite": {
+                                "id": "[resourceId('Microsoft.Network/vpnSites', concat(variables('regionNames')[copyIndex()],'-VWAN-VPN-OnSite1'))]"
+                            }
+                        }
+                    }
+                ],
+                "virtualHub": {
+                    "id": "[resourceId('Microsoft.Network/virtualHubs', concat(variables('regionNames')[copyIndex()],'-VWAN-HUB'))]"
+                },
+                "bgpSettings": {
+                    "asn": 65515
+                },
+                "vpnGatewayScaleUnit": 1
+            },
+            "copy": {
+                "name": "VPNGatewayCopy",
+                "count": "[variables('iterationCount')]"
+            }
+        }
+
+    ]
+}
