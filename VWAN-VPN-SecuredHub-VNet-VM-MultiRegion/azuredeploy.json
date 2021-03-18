@@ -397,7 +397,8 @@
             "location": "[variables('regionNames')[copyIndex()]]",
             "dependsOn": [
                 "[concat('Microsoft.Network/virtualHubs/', variables('regionNames')[copyIndex()],'-VWAN-Hub')]",
-                "[concat('Microsoft.Network/vpnSites/', variables('regionNames')[copyIndex()],'-VWAN-VPN-OnSite1')]"
+                "[concat('Microsoft.Network/vpnSites/', variables('regionNames')[copyIndex()],'-VWAN-VPN-OnSite1')]",
+                "[resourceId('Microsoft.Network/virtualHubs/hubVirtualNetworkConnections/', concat(variables('regionNames')[copyIndex()],'-VWAN-Hub'), concat(variables('regionNames')[copyIndex()],'-Hub-To-',variables('regionNames')[copyIndex()],'-VNET'))]"
             ],
             "properties": {
                 "connections": [
