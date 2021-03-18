@@ -363,7 +363,7 @@
                             {
                                 "ruleType": "NatRule",
                                 "name": "Allow_RDP",
-                                "translatedAddress": "10.250.0.4",
+                                "translatedAddress": "[concat('10.',add(copyIndex(0),parameters('vnetSpokeStartingOctect')),'.0.4')]",
                                 "translatedPort": "3389",
                                 "ipProtocols": [
                                     "TCP"
